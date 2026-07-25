@@ -4,8 +4,11 @@ import multer from 'multer';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import https from 'node:https';
+import os from 'node:os';
 import { once } from 'node:events';
 import { fileURLToPath } from 'node:url';
+import selfsigned from 'selfsigned';
 import { db, now, getSetting, setSetting, RESOURCE_DIR } from './db.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -1184,3 +1187,58 @@ app.listen(PORT, () => {
   console.log(`MiniTelephone server running at http://localhost:${PORT}`);
   console.log(`Resource dir: ${RESOURCE_DIR}`);
 });
+
+// ---------------- HTTPS（手机录音需要安全上下文） ----------------
+// 浏览器只允许 HTTPS / localhost 页面使用麦克风。这里自动生成一张
+// 自签名证书并同时提供 HTTPS 入口，手机访问 https://IP:3444（HTTP 端口 + 443）即可录音。
+// 自签证书不受系统信任，首次访问点「高级 → 继续前往」即可，之后不再提示。
+const HTTPS_PORT = Number(process.env.HTTPS_PORT) || PORT + 443;
+
+function lanIps() {
+  const ips = [];
+  for (const list of Object.values(os.networkInterfaces())) {
+    for (const it of list || []) {
+      if (it && it.family === 'IPv4' && !it.internal) ips.push(it.address);
+    }
+  }
+  return ips;
+}
+
+async function ensureCert() {
+  const dir = path.join(RESOURCE_DIR, 'certs');
+  const keyFile = path.join(dir, 'server.key');
+  const certFile = path.join(dir, 'server.crt');
+  if (fs.existsSync(keyFile) && fs.existsSync(certFile)) {
+    return { key: fs.readFileSync(keyFile), cert: fs.readFileSync(certFile) };
+  }
+  console.log('[HTTPS] 首次运行，正在生成自签名证书（resource/certs/）…');
+  const altNames = [
+    { type: 2, value: 'localhost' },
+    { type: 7, ip: '127.0.0.1' },
+    ...lanIps().map((ip) => ({ type: 7, ip })),
+  ];
+  const pems = await selfsigned.generate([{ name: 'commonName', value: 'MiniTelephone LAN' }], {
+    keySize: 2048,
+    days: 3650,
+    altNames,
+    extensions: [
+      { name: 'basicConstraints', cA: false },
+      { name: 'keyUsage', digitalSignature: true, keyEncipherment: true },
+      { name: 'extKeyUsage', serverAuth: true },
+    ],
+  });
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(keyFile, pems.private, { mode: 0o600 });
+  fs.writeFileSync(certFile, pems.cert);
+  return { key: pems.private, cert: pems.cert };
+}
+
+try {
+  const { key, cert } = await ensureCert();
+  https.createServer({ key, cert }, app).listen(HTTPS_PORT, () => {
+    console.log(`HTTPS (for phones / mic): https://localhost:${HTTPS_PORT}`);
+    for (const ip of lanIps()) console.log(`  -> https://${ip}:${HTTPS_PORT}`);
+  });
+} catch (e) {
+  console.warn(`[HTTPS] 启动失败（HTTP :${PORT} 不受影响，但手机无法录音）：${e.message}`);
+}

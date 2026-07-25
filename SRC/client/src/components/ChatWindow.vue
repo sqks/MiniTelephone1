@@ -29,6 +29,10 @@ const props = defineProps({
 const isGroup = !!props.group
 const targetId = isGroup ? props.group.id : props.friend.uid
 
+// HTTPS 入口端口约定为 HTTP 端口 + 443（与服务端 / 启动器一致）
+const httpsPort = location.port ? Number(location.port) + 443 : 3444
+const httpsHint = `请改用 https:// 地址（端口 ${httpsPort}）访问`
+
 const messages = ref([])
 const draft = ref('')
 const sending = ref(false)
@@ -147,15 +151,27 @@ async function sendImage(e) {
 }
 
 async function startRecording() {
+  // 麦克风只在安全上下文（HTTPS / localhost）可用：局域网 http://IP 访问时
+  // navigator.mediaDevices 会被浏览器整个隐藏，需区分这两种情况给出指引
+  if (!window.isSecureContext) {
+    toast.error(`当前是 http 访问，浏览器禁用了麦克风。${httpsHint}，首次点「高级 → 继续前往」`)
+    return
+  }
   if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
-    toast.error('当前浏览器不支持录音')
+    toast.error('当前浏览器不支持录音，请用最新版 Chrome / Edge / Safari')
     return
   }
   let stream
   try {
     stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-  } catch {
-    toast.error('无法使用麦克风，请检查系统权限')
+  } catch (err) {
+    if (err?.name === 'NotAllowedError' || err?.name === 'SecurityError') {
+      toast.error('麦克风权限被拒绝，请在浏览器地址栏左侧的站点设置中允许麦克风')
+    } else if (err?.name === 'NotFoundError') {
+      toast.error('未检测到麦克风设备')
+    } else {
+      toast.error('无法使用麦克风，请检查系统权限')
+    }
     return
   }
   const mime = ['audio/webm', 'audio/mp4', 'audio/ogg'].find((t) => MediaRecorder.isTypeSupported(t)) || ''
@@ -215,7 +231,11 @@ function stopRecording(cancel) {
 function startListening(lang) {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition
   if (!SR) {
-    toast.error('当前浏览器不支持语音识别，请用最新版 Chrome / Edge / Safari')
+    toast.error(
+      window.isSecureContext
+        ? '当前浏览器不支持语音识别，请用最新版 Chrome / Edge / Safari'
+        : `语音识别需要 HTTPS 页面，${httpsHint}`,
+    )
     return
   }
   if (speechRef.value) {
@@ -245,7 +265,11 @@ function startListening(lang) {
   }
   rec.onerror = (e) => {
     if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
-      toast.error('麦克风权限被拒绝')
+      toast.error(
+        window.isSecureContext
+          ? '麦克风权限被拒绝，请在浏览器站点设置中允许麦克风'
+          : `语音识别需要 HTTPS 页面，${httpsHint}`,
+      )
     } else if (e.error !== 'no-speech' && e.error !== 'aborted') {
       toast.error(`语音识别失败：${e.error}`)
     }

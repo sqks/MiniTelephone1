@@ -1,18 +1,20 @@
 @echo off
-rem é‡æ–°ç¼–è¯‘ MiniTelephone ä¸€é”®å¯åŠ¨å™¨ï¼ˆä½¿ç”¨ Windows è‡ªå¸¦çš„ csc.exeï¼Œæ— éœ€å®‰è£… .NET SDKï¼‰
+rem ÖØĞÂ±àÒë MiniTelephone Í¼ĞÎÆô¶¯Æ÷£¨Ê¹ÓÃ Windows ×Ô´øµÄ csc.exe£¬ÎŞĞè°²×° .NET SDK£©
 setlocal
 set CSC=%WINDIR%\Microsoft.NET\Framework64\v4.0.30319\csc.exe
 if not exist "%CSC%" set CSC=%WINDIR%\Microsoft.NET\Framework\v4.0.30319\csc.exe
 if not exist "%CSC%" (
-  echo [é”™è¯¯] æœªæ‰¾åˆ° csc.exeï¼Œè¯·ç¡®è®¤ç³»ç»Ÿå®‰è£…äº† .NET Framework 4.x
+  echo [´íÎó] Î´ÕÒµ½ csc.exe£¬ÇëÈ·ÈÏÏµÍ³°²×°ÁË .NET Framework 4.x
   pause
   exit /b 1
 )
-"%CSC%" /nologo /target:exe /out:"%~dp0..\MiniTelephone.exe" "%~dp0MiniTelephoneLauncher.cs"
+"%CSC%" /nologo /target:winexe /utf8output ^
+  /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.Management.dll ^
+  /out:"%~dp0..\MiniTelephone.exe" "%~dp0MiniTelephoneLauncher.cs"
 if errorlevel 1 (
-  echo [é”™è¯¯] ç¼–è¯‘å¤±è´¥
+  echo [´íÎó] ±àÒëÊ§°Ü
   pause
   exit /b 1
 )
-echo ç¼–è¯‘æˆåŠŸï¼š%~dp0..\MiniTelephone.exe
+echo ±àÒë³É¹¦£º%~dp0..\MiniTelephone.exe
 pause

@@ -1,2 +1,15 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# Windows 脚本必须保持 CRLF，否则可能无法执行
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Linux 脚本必须保持 LF
+*.sh  text eol=lf
+
+# 二进制文件不做任何转换
+*.exe binary
+*.png binary
+*.jpg binary
+*.ico binary

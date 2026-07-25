@@ -45,16 +45,17 @@
 
 ```
 MiniTelephone/
-├── MiniTelephone.exe        # Windows 一键启动器（双击即用）
-├── start.sh                 # Linux / macOS 一键启动脚本
+├── MiniTelephone.exe        # Windows 图形启动器：首次初始化（进度列表）+ 常驻监控面板
+├── monitor.sh               # Linux / macOS 监控台：状态/时长/内存/磁盘/端口管理
 ├── package.json
+├── launcher.ini             # 图形启动器保存的端口配置（首次改端口后生成）
 ├── SRC/
 │   ├── client/              # 前端（Vue 3 + Vite）
-│   ├── server/              # 后端（Express，端口 3001）
+│   ├── server/              # 后端（Express，HTTP :3001 + HTTPS :3444）
 │   └── scripts/dev.mjs      # 开发模式启动脚本
-├── tools/                   # Windows 启动器 C# 源码与编译脚本
+├── tools/                   # 图形启动器 C# 源码与编译脚本
 ├── deploy/                  # Linux 部署：一键脚本 / systemd / nginx 示例
-└── resource/                # 运行时生成：SQLite + 全部用户文件（勿提交）
+└── resource/                # 运行时生成：SQLite + 全部用户文件 + HTTPS 证书（勿提交）
 ```
 
 ## 环境要求
@@ -64,14 +65,19 @@ MiniTelephone/
 
 ## Windows 部署
 
-**方式一：一键启动（推荐）**
+**方式一：图形启动器（推荐）**
 
-1. 安装 [Node.js LTS](https://nodejs.org)（≥ 22.5）
-2. 双击项目根目录的 `MiniTelephone.exe`
-3. 首次运行会自动安装依赖并构建前端，完成后自动打开浏览器，窗口里会显示**局域网地址**，手机连同一 WiFi 即可访问
-4. 重复双击会提示「已在运行」；按 Ctrl+C 或关窗即停止
+双击 `MiniTelephone.exe`：
 
-启动器参数：`--dev` 开发模式（前端热更新，访问 :3000）、`--build` 强制重建前端、`--no-browser` 不打开浏览器。
+- **首次打开**：自动进入初始化界面，列表框实时滚动显示安装进度（检查 Node.js → 安装后端依赖 → 安装前端依赖 → 构建前端），完成后自动进入监控面板
+- **之后打开**：常驻监控面板，每 2.5 秒自动刷新，显示：
+  - 运行状态（运行中 / 已停止，含进程数）
+  - 已运行时长（x 小时 x 分）
+  - 服务内存占用（所有服务进程合计）
+  - 系统剩余内存、磁盘剩余空间
+  - 访问地址（本机 / 局域网 / 手机录音用 HTTPS）
+- 按钮：**启动服务** / **停止服务** / **打开页面**；**HTTP 端口可修改**（HTTPS 自动为 HTTP+443），保存到 `launcher.ini`，下次启动生效
+- 关闭窗口不会停止服务，再次打开继续监控
 
 **方式二：手动**
 
@@ -94,13 +100,13 @@ sudo bash deploy/setup.sh
 
 脚本会自动完成：安装 Node.js 22 → 拷贝代码到 `/opt/minitelephone` → 安装依赖 → 构建前端 → 创建 `minitelephone` 运行用户 → 配置 systemd（崩溃自重启 + 开机自启）→ 放行防火墙。再次执行即升级为最新代码，**数据目录 `resource/` 不受影响**。
 
-**方式二：手动 + 一键启动脚本**
+**方式二：监控台**
 
 ```bash
-cd SRC/server && npm install
-cd ../client && npm install && npm run build
-cd ../.. && ./start.sh        # 支持 --dev / --build / --no-browser
+./monitor.sh
 ```
+
+与 Windows 图形启动器同款功能，纯命令操作：仪表盘持续显示运行状态 / 已运行时长 / 服务内存占用 / 系统剩余内存 / 磁盘剩余空间 / 访问地址；**首次运行自动完成初始化**（装依赖、构建前端）。命令：**1** 启动、**2** 停止、**3** 重启、**4** 修改端口（保存在 `resource/port.conf`，重启生效）、**5** 查看日志、**q** 退出。
 
 **方式三：systemd 常驻**
 
@@ -111,11 +117,19 @@ sudo cp deploy/minitelephone.service /etc/systemd/system/
 sudo systemctl daemon-reload && sudo systemctl enable --now minitelephone
 ```
 
-**公网 HTTPS（语音功能的必要条件）**
+**HTTPS 与手机录音**
 
-> 手机的录音与语音识别要求浏览器处于 HTTPS 环境，用 `http://IP:3001` 访问时麦克风会被浏览器禁用。正式上线请绑定域名并启用 HTTPS。
+> 手机的录音与语音识别要求浏览器处于 HTTPS 环境，用 `http://IP:3001` 访问时麦克风会被浏览器禁用。
 
-参考 `deploy/nginx.conf.example` 配置 Nginx 反代，配合 certbot 自动签发证书：
+服务器已**内置 HTTPS**：启动时自动生成自签名证书（存于 `resource/certs/`），并在 **HTTP 端口 + 443**（默认 **3444**）提供 HTTPS 入口，无需任何额外配置：
+
+- 手机连同一 WiFi，访问 `https://服务器IP:3444`
+- 自签证书不受系统信任，首次打开点「高级 → 继续前往」即可，之后不再提示
+- 证书生成后长期有效（10 年），删除 `resource/certs/` 后重启会重新生成
+- **微信内置浏览器不支持网页录音**（微信限制），在微信里打开链接后需点右上角「在浏览器打开」
+- 服务器部署时记得放行 3444 端口（`deploy/setup.sh` 已自动处理 ufw；云服务器需在安全组手动放行）
+
+正式上线如需受信任的证书，仍可参考 `deploy/nginx.conf.example` 配置 Nginx 反代，配合 certbot 自动签发：
 
 ```bash
 sudo apt install nginx certbot python3-certbot-nginx
@@ -124,15 +138,16 @@ sudo certbot --nginx -d 你的域名
 
 ## macOS
 
-与 Linux 相同：装好 Node.js 后 `./start.sh` 即可。
+与 Linux 相同：装好 Node.js 后运行 `./monitor.sh` 监控台即可（首次自动初始化）。
 
 ## 使用说明
 
 | 事项 | 说明 |
 | --- | --- |
-| 访问地址 | 生产模式 `http://服务器:3001`，开发模式 `http://localhost:3000` |
+| 访问地址 | 生产模式 `http://服务器:3001`（手机录音用 `https://服务器:3444`），开发模式 `http://localhost:3000` |
 | 注册 | 开放模式下提交姓名/年龄/学校等管理员审批；未开放模式下找管理员要 UID |
 | 登录 | 输入 UID 即可，浏览器会记住 |
+| 退出登录 | 个人页底部「退出登录」，**连点两次**确认（第一次点击后按钮变红提示，3 秒内再点确认；兼容拦截系统弹窗的手机浏览器） |
 | 加好友 | 右上角 + 号输入对方 UID |
 | 管理面板 | PC 右上角盾牌图标，或任意设备访问 `网址/#admin` |
 | 初始管理密钥 | `admin123`（**上线后请立即在 管理面板 → 设置 中修改**） |
@@ -146,6 +161,8 @@ sudo certbot --nginx -d 你的域名
 ```
 resource/
 ├── minitelephone.db     # SQLite：用户/好友/群组/消息/配置
+├── certs/               # 内置 HTTPS 的自签名证书（首次启动自动生成）
+├── server.log           # monitor.sh 后台启动时的运行日志
 └── <UID>/
     ├── avatars/         # 该用户的全部历史头像（文件名带时间戳）
     └── messages/        # 该用户发出的图片与语音文件
@@ -156,8 +173,11 @@ resource/
 **启动报错 `No such built-in module: node:sqlite`**
 Node 版本低于 22.5，请升级 Node.js。
 
-**手机上点录音没反应**
-页面不是 HTTPS（或 localhost）。局域网 `http://IP` 属于非安全上下文，浏览器会禁用麦克风；要么本机 localhost 调试，要么上域名 + HTTPS。
+**手机上点录音提示不支持 / 没反应**
+局域网 `http://IP:3001` 属于非安全上下文，浏览器会禁用麦克风。改用 `https://IP:3444` 访问（首次点「高级 → 继续前往」），录音与语音识别即可正常使用；本机 `localhost` 调试不受影响。微信内置浏览器本身不支持网页录音，请改用系统浏览器打开。
+
+**手机提示麦克风权限被拒绝**
+在浏览器地址栏左侧的站点设置中允许麦克风，然后刷新页面重试。
 
 **忘记管理密钥**
 用 SQLite 工具修改 `resource/minitelephone.db` 的 `settings` 表中 `admin_token` 一行即可。

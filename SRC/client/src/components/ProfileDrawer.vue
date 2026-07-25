@@ -21,15 +21,31 @@ const editingName = ref(false)
 const nameDraft = ref('')
 const uploading = ref(false)
 const fileRef = ref(null)
+const logoutArmed = ref(false) // 退出登录二次确认：部分手机浏览器会拦截 window.confirm
+let logoutTimer = null
 
 watch(
   () => props.open,
   (open) => {
     if (!open) return
     editingName.value = false
+    logoutArmed.value = false
     api.listAvatars().then((l) => (avatars.value = l)).catch((e) => toast.error(e.message))
   },
 )
+
+function handleLogoutClick() {
+  // 第一次点进入确认状态（按钮变红字提示），3 秒内再点一次才真正退出
+  if (!logoutArmed.value) {
+    logoutArmed.value = true
+    clearTimeout(logoutTimer)
+    logoutTimer = setTimeout(() => (logoutArmed.value = false), 3000)
+    return
+  }
+  clearTimeout(logoutTimer)
+  logoutArmed.value = false
+  props.onLogout()
+}
 
 async function handleFile(e) {
   const file = e.target.files?.[0]
@@ -219,11 +235,13 @@ const vFocus = {
 
       <footer class="safe-bottom border-t border-gray-100 px-4">
         <button
-          @click="() => { if (window.confirm('退出当前账号？')) onLogout() }"
-          class="flex w-full items-center justify-center gap-1.5 rounded-xl bg-red-50 py-2.5 text-sm font-medium text-red-600 active:bg-red-100"
+          @click="handleLogoutClick"
+          :class="`flex w-full items-center justify-center gap-1.5 rounded-xl py-2.5 text-sm font-medium transition ${
+            logoutArmed ? 'bg-red-600 text-white active:bg-red-700' : 'bg-red-50 text-red-600 active:bg-red-100'
+          }`"
         >
           <LogOut class="h-4 w-4" />
-          退出登录
+          {{ logoutArmed ? '再点一次确认退出' : '退出登录' }}
         </button>
         <p class="mt-2 text-center text-xs text-gray-400">
           注册于 {{ me ? formatTime(me.created_at) : '-' }}
