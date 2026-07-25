@@ -1,0 +1,24 @@
+# MiniTelephone Nginx 反向代理示例
+# 把 chat.example.com 换成你的域名；配合 certbot 一键上 HTTPS：
+#   sudo apt install certbot python3-certbot-nginx
+#   sudo certbot --nginx -d chat.example.com
+#
+# 注意：语音录制 / 语音识别要求浏览器处于「安全上下文」，
+# 手机上用 http://IP:3001 访问时麦克风会被浏览器禁用，正式上线务必用域名 + HTTPS。
+
+server {
+    listen 80;
+    server_name chat.example.com;
+
+    # 上传图片/语音最大 20MB，这里留点余量
+    client_max_body_size 25m;
+
+    location / {
+        proxy_pass http://127.0.0.1:3001;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_read_timeout 60s;
+    }
+}

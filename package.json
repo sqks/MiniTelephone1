@@ -1,0 +1,10 @@
+{
+  "name": "minitelephone",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "dev": "node SRC/scripts/dev.mjs",
+    "build": "npm --prefix SRC/client run build",
+    "start": "npm --prefix SRC/server run start"
+  }
+}

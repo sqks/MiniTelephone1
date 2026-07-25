@@ -1,0 +1,22 @@
+[Unit]
+Description=MiniTelephone server
+After=network.target
+
+[Service]
+Type=simple
+# 改成你服务器上运行该服务的用户（不要直接用 root 更好）
+User=www-data
+Group=www-data
+# 改成项目实际所在目录
+WorkingDirectory=/opt/minitelephone
+# node 路径用 which node 确认；nvm 装的话通常在 ~/.nvm/versions/node/v22.x.x/bin/node
+ExecStart=/usr/bin/node SRC/server/index.js
+Restart=always
+RestartSec=3
+Environment=NODE_ENV=production
+Environment=PORT=3001
+# 也可以在这里配 DeepSeek Key（管理面板里配置也行，二选一）
+# Environment=DEEPSEEK_API_KEY=sk-xxxx
+
+[Install]
+WantedBy=multi-user.target
