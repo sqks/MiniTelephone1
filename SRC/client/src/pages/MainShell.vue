@@ -25,6 +25,7 @@ const conversations = ref([])
 const addOpen = ref(false)
 const chatWith = ref(null)
 const entriesOpen = ref(false)
+const pendingIncoming = ref(0)
 
 function refreshFriends() {
   api.listFriends().then((l) => (friends.value = l)).catch((e) => toast.error(e.message))
@@ -34,11 +35,22 @@ function refreshConversations() {
   api.listConversations().then((l) => (conversations.value = l)).catch(() => {})
 }
 
+function refreshRequests() {
+  api
+    .listFriendRequests()
+    .then((d) => (pendingIncoming.value = d.incoming.length))
+    .catch(() => {})
+}
+
 let timer = null
 onMounted(() => {
   refreshFriends()
   refreshConversations()
-  timer = setInterval(refreshConversations, 5000)
+  refreshRequests()
+  timer = setInterval(() => {
+    refreshConversations()
+    refreshRequests()
+  }, 5000)
 })
 onUnmounted(() => clearInterval(timer))
 
@@ -89,9 +101,15 @@ const onTouchEnd = (e) => {
       <button
         @click="addOpen = true"
         aria-label="添加好友"
-        class="rounded-full p-2 active:bg-white/10"
+        class="relative rounded-full p-2 active:bg-white/10"
       >
         <UserPlus class="h-6 w-6" />
+        <span
+          v-if="pendingIncoming > 0"
+          class="absolute right-0 top-0 min-w-[18px] rounded-full bg-red-500 px-1.5 py-0.5 text-center text-[10px] font-medium leading-none text-white"
+        >
+          {{ pendingIncoming > 99 ? '99+' : pendingIncoming }}
+        </span>
       </button>
     </header>
 
@@ -150,11 +168,11 @@ const onTouchEnd = (e) => {
     <AddFriendSheet
       v-if="addOpen"
       :on-close="() => (addOpen = false)"
-      :on-added="
+      :on-changed="
         () => {
-          addOpen = false
-          tab = 'friends'
           refreshFriends()
+          refreshConversations()
+          refreshRequests()
         }
       "
     />

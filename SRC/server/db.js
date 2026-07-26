@@ -53,6 +53,15 @@ CREATE TABLE IF NOT EXISTS friendships (
   UNIQUE(user_uid, friend_uid)
 );
 
+CREATE TABLE IF NOT EXISTS friend_requests (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  from_uid     INTEGER NOT NULL REFERENCES users(uid) ON DELETE CASCADE,
+  to_uid       INTEGER NOT NULL REFERENCES users(uid) ON DELETE CASCADE,
+  status       TEXT NOT NULL DEFAULT 'pending',  -- pending / accepted / rejected
+  created_at   TEXT NOT NULL,
+  processed_at TEXT
+);
+
 CREATE TABLE IF NOT EXISTS registration_requests (
   id           INTEGER PRIMARY KEY AUTOINCREMENT,
   name         TEXT NOT NULL,
@@ -107,6 +116,8 @@ CREATE INDEX IF NOT EXISTS idx_avatars_user ON avatars(user_uid, created_at DESC
 CREATE INDEX IF NOT EXISTS idx_entries_user ON entries(user_uid, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_items_entry  ON entry_items(entry_id, sort);
 CREATE INDEX IF NOT EXISTS idx_friend_user  ON friendships(user_uid);
+CREATE INDEX IF NOT EXISTS idx_freq_to      ON friend_requests(to_uid, status);
+CREATE INDEX IF NOT EXISTS idx_freq_from    ON friend_requests(from_uid, status);
 CREATE INDEX IF NOT EXISTS idx_reg_status   ON registration_requests(status, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_msg_pair     ON messages(from_uid, to_uid, id);
 CREATE INDEX IF NOT EXISTS idx_msg_unread   ON messages(to_uid, from_uid, read_at);

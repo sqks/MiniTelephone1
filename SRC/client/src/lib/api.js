@@ -91,6 +91,10 @@ export const api = {
   addFriend: (uid) => request('/friends', json('POST', { uid })),
   removeFriend: (uid) => request(`/friends/${uid}`, { method: 'DELETE' }),
   lookupUser: (uid) => request(`/users/lookup/${uid}`),
+  listFriendRequests: () => request('/friends/requests'),
+  acceptFriendRequest: (id) => request(`/friends/requests/${id}/accept`, { method: 'POST' }),
+  rejectFriendRequest: (id) => request(`/friends/requests/${id}/reject`, { method: 'POST' }),
+  cancelFriendRequest: (id) => request(`/friends/requests/${id}`, { method: 'DELETE' }),
 
   // 聊天
   listConversations: () => request('/conversations'),

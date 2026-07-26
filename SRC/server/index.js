@@ -586,6 +586,7 @@ admin.delete('/data/all', (req, res) => {
       'group_members',
       'chat_groups',
       'friendships',
+      'friend_requests',
       'entry_items',
       'entries',
       'avatars',
@@ -713,6 +714,31 @@ app.get('/api/friends', requireUser, (req, res) => {
   res.json(rows.map((r) => friendPayload(req.accountId, r.friend_uid, r.created_at)));
 });
 
+// 把双方写入 friendships（双向），幂等
+function makeFriends(aUid, bUid) {
+  const t = now();
+  const ins = db.prepare(
+    'INSERT OR IGNORE INTO friendships (user_uid, friend_uid, created_at) VALUES (?, ?, ?)'
+  );
+  db.exec('BEGIN');
+  try {
+    ins.run(aUid, bUid, t);
+    ins.run(bUid, aUid, t);
+    db.exec('COMMIT');
+  } catch (e) {
+    db.exec('ROLLBACK');
+    throw e;
+  }
+  return t;
+}
+
+function pendingRequestBetween(aUid, bUid) {
+  return db
+    .prepare("SELECT * FROM friend_requests WHERE from_uid = ? AND to_uid = ? AND status = 'pending' ORDER BY id DESC")
+    .get(aUid, bUid);
+}
+
+// 发送好友请求（不再是直接加好友，需对方在「添加好友」页审批同意）
 app.post('/api/friends', requireUser, (req, res) => {
   const friendUid = Number(req.body?.uid);
   if (!Number.isInteger(friendUid) || friendUid < 1 || friendUid > 999999) {
@@ -724,18 +750,66 @@ app.post('/api/friends', requireUser, (req, res) => {
     .prepare('SELECT 1 FROM friendships WHERE user_uid = ? AND friend_uid = ?')
     .get(req.accountId, friendUid);
   if (exists) throw httpError(400, '你们已经是好友了');
-  const t = now();
-  db.exec('BEGIN');
-  try {
-    const ins = db.prepare('INSERT INTO friendships (user_uid, friend_uid, created_at) VALUES (?, ?, ?)');
-    ins.run(req.accountId, friendUid, t);
-    ins.run(friendUid, req.accountId, t);
-    db.exec('COMMIT');
-  } catch (e) {
-    db.exec('ROLLBACK');
-    throw e;
+  if (pendingRequestBetween(req.accountId, friendUid)) {
+    throw httpError(400, '好友请求已发送，等待对方处理');
   }
-  res.status(201).json(friendPayload(req.accountId, friendUid, t));
+  // 对方已经向我发过请求：直接视为互相同意，立即成为好友
+  const reverse = pendingRequestBetween(friendUid, req.accountId);
+  if (reverse) {
+    const t = makeFriends(req.accountId, friendUid);
+    db.prepare("UPDATE friend_requests SET status = 'accepted', processed_at = ? WHERE id = ?").run(t, reverse.id);
+    return res.status(201).json({ ...friendPayload(req.accountId, friendUid, t), auto_accepted: true });
+  }
+  const t = now();
+  const r = db
+    .prepare("INSERT INTO friend_requests (from_uid, to_uid, status, created_at) VALUES (?, ?, 'pending', ?)")
+    .run(req.accountId, friendUid, t);
+  res.status(201).json({ request_id: Number(r.lastInsertRowid), to_uid: friendUid, pending: true, created_at: t });
+});
+
+// 好友请求列表：incoming 待我审批，outgoing 我发出的待处理
+app.get('/api/friends/requests', requireUser, (req, res) => {
+  const incoming = db
+    .prepare("SELECT * FROM friend_requests WHERE to_uid = ? AND status = 'pending' ORDER BY id DESC")
+    .all(req.accountId)
+    .map((r) => ({ request_id: r.id, created_at: r.created_at, user: userPayload(r.from_uid) }));
+  const outgoing = db
+    .prepare("SELECT * FROM friend_requests WHERE from_uid = ? AND status = 'pending' ORDER BY id DESC")
+    .all(req.accountId)
+    .map((r) => ({ request_id: r.id, created_at: r.created_at, user: userPayload(r.to_uid) }));
+  res.json({ incoming, outgoing });
+});
+
+function loadPendingRequest(req, res) {
+  const id = Number(req.params.id);
+  const r = db.prepare("SELECT * FROM friend_requests WHERE id = ? AND status = 'pending'").get(id);
+  if (!r) throw httpError(404, '请求不存在或已处理');
+  return r;
+}
+
+// 同意好友请求（仅接收方）
+app.post('/api/friends/requests/:id/accept', requireUser, (req, res) => {
+  const r = loadPendingRequest(req);
+  if (r.to_uid !== req.accountId) throw httpError(403, '只能处理发给你的请求');
+  const t = makeFriends(r.from_uid, r.to_uid);
+  db.prepare("UPDATE friend_requests SET status = 'accepted', processed_at = ? WHERE id = ?").run(t, r.id);
+  res.json(friendPayload(req.accountId, r.from_uid, t));
+});
+
+// 拒绝好友请求（仅接收方）
+app.post('/api/friends/requests/:id/reject', requireUser, (req, res) => {
+  const r = loadPendingRequest(req);
+  if (r.to_uid !== req.accountId) throw httpError(403, '只能处理发给你的请求');
+  db.prepare("UPDATE friend_requests SET status = 'rejected', processed_at = ? WHERE id = ?").run(now(), r.id);
+  res.json({ ok: true });
+});
+
+// 撤回我发出的好友请求（仅发送方）
+app.delete('/api/friends/requests/:id', requireUser, (req, res) => {
+  const r = loadPendingRequest(req);
+  if (r.from_uid !== req.accountId) throw httpError(403, '只能撤回自己发出的请求');
+  db.prepare('DELETE FROM friend_requests WHERE id = ?').run(r.id);
+  res.json({ ok: true });
 });
 
 app.delete('/api/friends/:uid', requireUser, (req, res) => {
@@ -754,7 +828,15 @@ app.get('/api/users/lookup/:uid', requireUser, (req, res) => {
   const isFriend = !!db
     .prepare('SELECT 1 FROM friendships WHERE user_uid = ? AND friend_uid = ?')
     .get(req.accountId, uid);
-  res.json({ ...u, is_friend: isFriend, is_self: uid === req.accountId });
+  const outgoing = pendingRequestBetween(req.accountId, uid);
+  const incoming = pendingRequestBetween(uid, req.accountId);
+  res.json({
+    ...u,
+    is_friend: isFriend,
+    is_self: uid === req.accountId,
+    outgoing_pending: !!outgoing,
+    incoming_pending: incoming ? { request_id: incoming.id } : null,
+  });
 });
 
 // ---------------- messages (聊天) ----------------
